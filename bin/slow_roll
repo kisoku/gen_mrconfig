@@ -1,0 +1,80 @@
+#!/usr/bin/env ruby
+
+require 'inifile'
+require 'mixlib/cli'
+require 'robotic-cook/mixin/shellout'
+
+
+class SlowRoll
+  include RoboticCook::Shellout
+
+  attr_reader :batch_size, :branch, :pull_request
+  def initialize(batch_size: 3, branch: 'master', pull_request: false)
+    @batch_size = batch_size
+    @pull_request = pull_request
+    @branch = branch
+    @mrconfig = IniFile.load('.mrconfig')
+  end
+
+
+  def roll
+
+    repos = @mrconfig.sections
+    if File.exist?('.slow-roll')
+      processed = File.read('.slow-roll').split
+    else
+      processed = []
+    end
+
+    batch = (repos - processed).take(batch_size)
+
+    puts "Processing #{batch.join(', ')}"
+
+    done = []
+    begin
+      batch.each do |cb|
+        Dir.chdir(cb) do
+          run!('git', 'pull', '--rebase')
+          run!('git', 'push', 'origin', branch)
+          run!('hub', 'pull-request', '-m', pull_request) if pull_request
+          done << cb
+        end
+      end
+    ensure
+      new_processed = processed.concat(done)
+      File.write('.slow-roll', new_processed.sort.uniq.join("\n"))
+    end
+  end
+end
+
+class SlowRoll::CLI
+  include Mixlib::CLI
+
+  option :batch_size,
+    short: '-n BATCH_SIZE',
+    long: '--batch-size BATCH_SIZE',
+    default: 3,
+    proc: Proc.new { |s| s.to_i },
+    description: 'the number of repositories to process during this run'
+
+  option :branch,
+    short: '-b BRANCH',
+    long: '--branch BRANCH',
+    default: 'master',
+    required: true,
+    description: 'the branch to push'
+
+  option :pull_request,
+    short: '-p MESSAGE',
+    long: '--pull-request MESSAGE',
+    default: nil,
+    description: 'initiate a pull request'
+
+  def exec
+    parse_options
+    roller = SlowRoll.new(batch_size: config[:batch_size].to_i, branch: config[:branch], pull_request: config[:pull_request])
+    roller.roll
+  end
+end
+
+SlowRoll::CLI.new.exec

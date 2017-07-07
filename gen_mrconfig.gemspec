@@ -14,6 +14,7 @@ Gem::Specification.new do |s|
   s.bindir = 'bin/'
   s.executables = %w{
     gen_mrconfig
+    slow_roll
   }
   s.add_dependency 'mixlib-cli'
   s.add_dependency 'octokit'
